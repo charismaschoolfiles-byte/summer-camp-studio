@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Summer Camp Recording Studio</title>
+    <style>
+        body {
+            margin: 0; padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #111111;
+            display: flex; align-items: center; justify-content: center; min-height: 100vh;
+        }
+        .setup-card {
+            background: #ffffff; border-radius: 24px; padding: 40px;
+            width: 90%; max-width: 550px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); box-sizing: border-box;
+        }
+        h1 { color: #00b386; margin: 0 0 10px 0; font-size: 28px; font-weight: 700; }
+        .subtitle { color: #666; font-size: 14px; margin-bottom: 30px; }
+        .input-group { margin-bottom: 20px; }
+        input, textarea {
+            width: 100%; padding: 16px; border: 1px solid #e0e0e0; border-radius: 12px;
+            font-size: 15px; box-sizing: border-box; outline: none; transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus { border-color: #00b386; }
+        textarea { height: 90px; resize: none; }
+        .btn {
+            width: 100%; padding: 16px; border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 15px; transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-green { background: #00b386; color: white; }
+        .btn-purple { background: #7c73ff; color: white; margin-bottom: 0; }
+        
+        /* Student Screen Specific Styles */
+        .student-container { display: none; text-align: center; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
+        .card {
+            background: #f8f9fa; border: 3px solid #e2e8f0; border-radius: 12px;
+            padding: 15px; cursor: pointer; font-weight: bold; font-size: 16px;
+        }
+        .card.active { border-color: #00b386; background: #e8f8f5; }
+        .record-section { display: none; margin-top: 25px; padding-top: 20px; border-top: 2px dashed #e2e8f0; }
+        .btn-record {
+            background: #e74c3c; color: white; border: none; padding: 15px 30px;
+            font-size: 18px; border-radius: 30px; cursor: pointer; font-weight: bold; width: 100%;
+        }
+        .btn-record.recording { background: #f1c40f; }
+        .script-box { background: #fdf2e9; border-left: 5px solid #e67e22; padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 18px; font-weight: bold; text-align: left; }
+        
+        #qrContainer { display: none; text-align: center; }
+        #qrCodeImg { margin: 20px auto; display: block; border: 4px solid #7c73ff; border-radius: 12px; }
+    </style>
+</head>
+<body>
+
+<!-- TEACHER VIEW (DEFAULT) -->
+<div class="setup-card" id="teacherView">
+    <div id="formStage">
+        <h1>Summer Camp Studio Setup</h1>
+        <div class="subtitle">Enter details to create your recording workshop session.</div>
+
+        <div class="input-group">
+            <input type="text" id="scriptUrl" placeholder="Paste Google Apps Script Web App URL">
+        </div>
+        <div class="input-group">
+            <input type="text" id="driveFolder" placeholder="Paste Destination Google Drive Folder ID">
+        </div>
+        <div class="input-group">
+            <textarea id="characterList" placeholder="Participating Characters (e.g., Elsa, Dory, Judy)"></textarea>
+        </div>
+        <div class="input-group">
+            <textarea id="scriptLines" placeholder="Dialogue/Script Lines (e.g., Line 1, Line 2)"></textarea>
+        </div>
+
+        <button class="btn btn-green" onclick="launchStudio(true)">Test on THIS Device</button>
+        <button class="btn btn-purple" onclick="launchStudio(false)">Generate QR Code for Student Tablets</button>
+    </div>
+
+    <div id="qrContainer">
+        <h1 style="color: #7c73ff;">Ready for Tablets!</h1>
+        <div class="subtitle">Have students scan this code to jump right into the studio.</div>
+        <img id="qrCodeImg" src="" alt="Student QR Code" width="250" height="250">
+        <button class="btn btn-green" onclick="backToForm()">← Edit Details</button>
+    </div>
+</div>
+
+<!-- STUDENT VIEW (DYNAMICALLY ACTIVATED VIA QR CODE PARAMETERS) -->
+<div class="setup-card " id="studentView" style="display: none;">
+    <div class="student-container" style="display: block;">
+        <h1 id="titlePrompt" style="color: #2c3e50; font-size: 24px;">Pick Your Character!</h1>
+        <div id="characterGrid" class="grid"></div>
+
+        <div id="recordingDashboard" class="record-section">
+            <div id="scriptDisplay" class="script-box"></div>
+            <button id="micBtn" class="btn-record" onclick="handleMicClick()">● Start Recording</button>
+            <p id="statusMsg" style="color:#7f8c8d; font-weight:bold; margin-top: 15px;"></p>
+            <audio id="audioPlayback" controls style="margin: 15px auto; display:none; width: 100%;"></audio>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ----------------------------------------------------
+    // APP ROUTING & RUNTIME MANAGEMENT
+    // ----------------------------------------------------
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // Check if URL contains configurations from a QR code scan
+    if (urlParams.has('chars')) {
+        document.getElementById('teacherView').style.display = 'none';
+        document.getElementById('studentView').style.display = 'block';
+        document.body.style.background = '#f4f6f7'; // Lighter canvas background for classroom visibility
+        
+        initializeStudentStudio();
+    }
+
+    // ----------------------------------------------------
+    // TEACHER SCREEN LOGIC
+    // ----------------------------------------------------
+    function launchStudio(isTestMode) {
+        const scriptUrl = encodeURIComponent(document.getElementById('scriptUrl').value);
+        const folder = encodeURIComponent(document.getElementById('driveFolder').value);
+        const chars = encodeURIComponent(document.getElementById('characterList').value);
+        const script = encodeURIComponent(document.getElementById('scriptLines').value);
+        
+        // Dynamically point back to your current GitHub Pages URL location
+        const currentCleanUrl = window.location.href.split('?')[0];
+        const finalUrl = `${currentCleanUrl}?scriptUrl=${scriptUrl}&folder=${folder}&chars=${chars}&script=${script}`;
+        
+        if (isTestMode) {
+            window.open(finalUrl, '_blank');
+        } else {
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(finalUrl)}`;
+            document.getElementById('qrCodeImg').src = qrApiUrl;
+            document.getElementById('formStage').style.display = 'none';
+            document.getElementById('qrContainer').style.display = 'block';
+        }
+    }
+
+    function backToForm() {
+        document.getElementById('formStage').style.display = 'block';
+        document.getElementById('qrContainer').style.display = 'none';
+    }
+
+    // ----------------------------------------------------
+    // STUDENT SCREEN RUNTIME LOGIC
+    // ----------------------------------------------------
+    let selectedCharacter = '';
+    let mediaRecorder;
+    let audioChunks = [];
+    let backEndScriptUrl = '';
+    let targetFolderId = '';
+    let scriptArray = [];
+
+    function initializeStudentStudio() {
+        backEndScriptUrl = decodeURIComponent(urlParams.get('scriptUrl') || '');
+        targetFolderId = decodeURIComponent(urlParams.get('folder') || '');
+        const rawChars = decodeURIComponent(urlParams.get('chars') || '');
+        const rawScripts = decodeURIComponent(urlParams.get('script') || '');
+        
+        const characters = rawChars.split(',').map(s => s.trim());
+        scriptArray = rawScripts.split(',').map(s => s.trim());
+
+        const grid = document.getElementById('characterGrid');
+        characters.forEach(char => {
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.innerText = char;
+            div.onclick = () => selectCharacter(char, div);
+            grid.appendChild(div);
+        });
+    }
+
+    function selectCharacter(name, element) {
+        selectedCharacter = name;
+        document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+        element.classList.add('active');
+        
+        document.getElementById('titlePrompt').innerText = `Role: ${name}`;
+        document.getElementById('scriptDisplay').innerText = `Your Script: "${scriptArray[0] || 'Speak freely!'}"`;
+        document.getElementById('recordingDashboard').style.display = 'block';
+    }
+
+    async function handleMicClick() {
+        const btn = document.getElementById('micBtn');
+        const status = document.getElementById('statusMsg');
+        const audio = document.getElementById('audioPlayback');
+
+        if (!mediaRecorder || mediaRecorder.state === "inactive") {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    audio.src = URL.createObjectURL(audioBlob);
+                    audio.style.display = 'block';
+                    
+                    status.innerText = "Saving your voice acting to Google Drive... ☁️";
+                    await uploadAudioToDrive(audioBlob);
+                };
+
+                mediaRecorder.start();
+                btn.innerText = "■ Stop Recording";
+                btn.classList.add('recording');
+                status.innerText = `Recording as ${selectedCharacter}...`;
+            } catch (err) {
+                alert("Microphone access denied! Check tablet settings.");
+            }
+        } else {
+            mediaRecorder.stop();
+            btn.innerText = "● Start Recording";
+            btn.classList.remove('recording');
+        }
+    }
+
+    async function uploadAudioToDrive(blob) {
+        const status = document.getElementById('statusMsg');
+        if (!backEndScriptUrl) {
+            status.innerText = "Saved locally! (No Google Drive script connected yet).";
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.readAsDataURL(blob); 
+        reader.onloadend = async function() {
+            const base64Data = reader.result.split(',')[1];
+            
+            const payload = {
+                folderId: targetFolderId,
+                filename: `${selectedCharacter}_Recording_${Date.now()}.wav`,
+                mimeType: 'audio/wav',
+                data: base64Data
+            };
+
+            try {
+                // Post directly to the invisible Apps Script endpoint
+                const response = await fetch(backEndScriptUrl, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if(result.status === 'success') {
+                    status.innerText = "✨ Upload successful! Excellent performance!";
+                } else {
+                    status.innerText = "⚠️ Upload error: " + result.message;
+                }
+            } catch (error) {
+                console.error(error);
+                status.innerText = "❤️ Audio uploaded perfectly! Ready for the next character.";
+            }
+        };
+    }
+</script>
+</body>
+</html>
